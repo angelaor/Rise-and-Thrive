@@ -592,7 +592,7 @@
   .cal-key i.k-yoga{background:var(--yoga-fill);}
   .cal-key i.k-med{background:var(--med-fill);}
   .cal-key i.k-both{background:linear-gradient(135deg, var(--yoga-fill) 0 50%, var(--med-fill) 50% 100%);}
-  .cal-med-line{font-size:calc(12.5px * var(--fs-mult, 1));color:var(--parchment);}
+  .cal-med-line{font-size:calc(12.5px * var(--fs-mult, 1));color:var(--parchment);margin-bottom:3px;}
 
   /* ---------------- Today's practice banner ---------------- */
   .today-banner{
@@ -1733,17 +1733,19 @@ function renderCalendar(){
   if(!entry || (entry.poses.length===0 && !(entry.meditation>0) && (!PHASE2.strength || entry.strength.length===0))){
     detailHtml += `<div class="cal-detail-empty">Nothing logged this day.</div>`;
   } else {
-    if(entry.poses.length){
-      detailHtml += `<div class="cal-detail-group">
-        <div class="cal-detail-label">Yoga</div>
-        <div class="cal-detail-items">${entry.poses.join(' · ')}</div>
-      </div>`;
-    }
+    // Day's activity: meditation on the first line, yoga poses on the next
+    const lines = [];
     if(entry.meditation > 0){
       const sessions = entry.medSessions > 1 ? ` (${entry.medSessions} sessions)` : '';
+      lines.push(`<div class="cal-med-line">Meditation for ${entry.meditation} minutes${sessions}</div>`);
+    }
+    if(entry.poses.length){
+      lines.push(`<div class="cal-detail-items">Yoga: ${entry.poses.join(' · ')}</div>`);
+    }
+    if(lines.length){
       detailHtml += `<div class="cal-detail-group">
-        <div class="cal-detail-label">Meditation</div>
-        <div class="cal-med-line">Meditation for ${entry.meditation} minutes${sessions}</div>
+        <div class="cal-detail-label">Day's activity</div>
+        ${lines.join('')}
       </div>`;
     }
     if(PHASE2.strength && entry.strength.length){
