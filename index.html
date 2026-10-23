@@ -538,6 +538,49 @@
     line-height:1.6;
   }
 
+  /* ---------------- Pose info ---------------- */
+  .pose-icon{position:relative;}
+  .info-btn{
+    position:absolute;top:3px;right:3px;width:22px;height:22px;border-radius:50%;
+    border:none;background:rgba(11,10,7,.72);color:var(--parchment);
+    font:600 12px/22px Georgia,'Times New Roman',serif;font-style:italic;
+    text-align:center;cursor:pointer;padding:0;
+  }
+  .info-btn:hover,.info-btn.open{background:var(--brass);color:var(--ink);}
+  .pose-howto{
+    margin:-4px 0 10px;padding:12px 14px;background:var(--surface-raised);
+    border:1px solid var(--hairline);border-top:none;border-radius:0 0 var(--radius) var(--radius);
+    font-size:calc(12.5px * var(--fs-mult, 1));line-height:1.55;color:var(--parchment);
+  }
+  .pose-howto b{color:var(--brass-bright);font-weight:600;}
+  .pose-howto .tip{display:block;margin-top:6px;color:var(--parchment-dim);}
+  .pose-card.info-open{border-radius:var(--radius) var(--radius) 0 0;margin-bottom:0;}
+
+  /* ---------------- Meditation ---------------- */
+  .med-card{
+    background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);
+    padding:16px;margin:0 0 22px;
+  }
+  .med-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:4px;}
+  .med-title{font-weight:800;font-size:calc(19px * var(--fs-mult, 1));color:var(--parchment);}
+  .med-sub{font-size:calc(12.5px * var(--fs-mult, 1));color:var(--parchment-dim);margin:2px 0 12px;}
+  .med-pills{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:14px;}
+  .med-pill{
+    font-family:'Inter',sans-serif;font-variant-numeric:tabular-nums;
+    font-size:calc(12px * var(--fs-mult, 1));padding:8px 0;border-radius:10px;
+    border:1px solid var(--hairline);background:transparent;color:var(--parchment-dim);cursor:pointer;
+  }
+  .med-pill.active{background:var(--sage);border-color:var(--sage);color:var(--ink);font-weight:600;}
+  .med-pill:disabled{opacity:.45;cursor:default;}
+  .med-body{display:flex;align-items:center;gap:16px;}
+  .med-clock{
+    font-variant-numeric:tabular-nums;font-weight:600;
+    font-size:calc(34px * var(--fs-mult, 1));color:var(--brass-bright);min-width:110px;
+  }
+  .med-actions{display:flex;gap:8px;flex-wrap:wrap;}
+  .med-done{margin-top:10px;font-size:calc(12.5px * var(--fs-mult, 1));color:var(--sage);min-height:1em;}
+  .cal-dot.med{background:#A8A2C8;}
+
   /* ---------------- Today's practice banner ---------------- */
   .today-banner{
     display:flex;align-items:center;gap:12px;
@@ -682,6 +725,20 @@
       <div class="streak-num" id="streakVal">0</div>
     </div>
     <div class="streak-label">Day streak · <b id="streakSub">complete today's rounds to extend it</b></div>
+  </div>
+
+  <div class="med-card" id="meditation">
+    <div class="med-head"><div class="med-title">Meditation</div></div>
+    <p class="med-sub">Choose a length, press Start, and rest. A chime sounds when your time is complete.</p>
+    <div class="med-pills" id="medPills"></div>
+    <div class="med-body">
+      <div class="med-clock" id="medClock">10:00</div>
+      <div class="med-actions">
+        <button class="btn-brass" id="medStart" onclick="medStartPause()">Start</button>
+        <button class="btn-quiet" id="medReset" onclick="medReset()">Reset</button>
+      </div>
+    </div>
+    <div class="med-done" id="medDone" role="status" aria-live="polite"></div>
   </div>
 
   <div class="day-strip" id="dayStrip"></div>
@@ -1136,7 +1193,7 @@ function logRemove(type, name){
   const day = state.log[key];
   if(!day) return;
   day[type] = day[type].filter(n=>n!==name);
-  if(day.poses.length===0 && day.strength.length===0) delete state.log[key];
+  if(day.poses.length===0 && day.strength.length===0 && !(day.meditation>0)) delete state.log[key];
 }
 function allPosesFlat(){
   return [...WARMUP, ...Object.values(DAYS).flatMap(d=>d.poses), ...COOLDOWN];
@@ -1181,8 +1238,7 @@ function poseCard(pose, day, round, isFixed){
   } else {
     controlsHtml = segs.map((seg, i)=>{
       const key = checkKey(day, round, pose.id, i);
-      const timerId = `timer_${key}`;
-      return `<button class="timer-btn" id="${timerId}" data-key="${key}" data-sec="${seg.sec}" onclick="startTimer('${timerId}','${key}')">${fmtTime(seg.sec)}</button>`;
+      return timerBtnHtml(key, seg.sec);
     }).join('') + `<button class="check ${segs.every((s,i)=>isChecked(checkKey(day,round,pose.id,i)))?'checked':''}" id="checkall_${pose.id}_${round}" onclick="toggleAllSegs('${pose.id}',${day},${round})">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="3"><path d="M4 12l5 5L20 6"/></svg>
       </button>`;
@@ -1192,15 +1248,18 @@ function poseCard(pose, day, round, isFixed){
     ? `${pose.reps} slow reps`
     : segs.map(s => s.label ? `${s.label} ${fmtTime(s.sec)}` : fmtTime(s.sec)).join(' · ');
 
+  const infoId = `howto_${pose.id}_${round}`;
+  const isOpen = openInfo === infoId;
+  const howto = POSE_HOWTO[pose.icon];
   return `
-    <div class="pose-card">
-      <div class="pose-icon">${poseVisual(pose)}</div>
+    <div class="pose-card ${isOpen?'info-open':''}">
+      <div class="pose-icon">${poseVisual(pose)}${howto?`<button class="info-btn ${isOpen?'open':''}" aria-label="How to do ${pose.name}" aria-expanded="${isOpen}" onclick="toggleInfo('${infoId}')">i</button>`:''}</div>
       <div class="pose-info">
         <div class="pose-name">${pose.name}</div>
         <div class="pose-meta">${metaText}</div>
       </div>
       <div class="pose-controls">${controlsHtml}</div>
-    </div>`;
+    </div>${isOpen && howto ? `<div class="pose-howto" id="${infoId}"><b>How to do it:</b> ${howto.how}${howto.tip?`<span class="tip">Tip: ${howto.tip}</span>`:''}</div>` : ''}`;
 }
 
 function toggleAllSegs(poseId, day, round){
@@ -1236,48 +1295,99 @@ function fmtTime(sec){
 }
 
 /* ---------------- Timers ---------------- */
+/* Timers are kept by check key with an end time, so they survive the page
+   redrawing (rep taps, check-offs, round switches) and a locked screen. */
 const activeTimers = {};
-function startTimer(btnId, key){
-  const btn = document.getElementById(btnId);
-  if(!btn) return;
-  // Prime audio here, during the actual click (user gesture), so the
-  // completion chime is allowed to play later by the browser's autoplay policy.
-  try{
-    if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
-    if(audioCtx.state === 'suspended') audioCtx.resume();
-  }catch(e){}
-  if(activeTimers[btnId]){
-    clearInterval(activeTimers[btnId].interval);
-    delete activeTimers[btnId];
-    btn.classList.remove('running');
-    btn.textContent = fmtTime(parseInt(btn.dataset.sec));
+let tickHandle = null;
+function timerBtnHtml(key, sec){
+  const t = activeTimers[key];
+  const left = t ? Math.max(0, Math.ceil((t.endAt - Date.now())/1000)) : sec;
+  return `<button class="timer-btn ${t?'running':''}" id="timer_${key}" data-key="${key}" data-sec="${sec}" onclick="startTimer('${key}')">${fmtTime(left)}</button>`;
+}
+function startTimer(key){
+  unlockAudio();
+  const btn = document.getElementById('timer_'+key);
+  const sec = btn ? parseInt(btn.dataset.sec) : 0;
+  if(activeTimers[key]){            // tap again = cancel
+    delete activeTimers[key];
+    if(btn){ btn.classList.remove('running'); btn.textContent = fmtTime(sec); }
+    afterTimersChange();
     return;
   }
-  let remaining = parseInt(btn.dataset.sec);
-  btn.classList.add('running');
-  btn.textContent = fmtTime(remaining);
-  activeTimers[btnId] = {interval: setInterval(()=>{
-    remaining -= 1;
-    if(remaining <= 0){
-      clearInterval(activeTimers[btnId].interval);
-      delete activeTimers[btnId];
-      btn.classList.remove('running');
-      btn.textContent = '✓';
-      chime();
-      state.checks[key] = true;
-      logAdd('poses', poseNameFromKey(key));
-      saveState();
-      setTimeout(()=>{ renderRoutine(); updateStreakUI(); renderCalendar(); }, 500);
-      return;
-    }
-    btn.textContent = fmtTime(remaining);
-  }, 1000)};
+  activeTimers[key] = {endAt: Date.now() + sec*1000, sec};
+  if(btn){ btn.classList.add('running'); btn.textContent = fmtTime(sec); }
+  afterTimersChange();
 }
+function anyTimerRunning(){ return Object.keys(activeTimers).length > 0 || med.running; }
+function afterTimersChange(){
+  if(anyTimerRunning()){
+    if(!tickHandle) tickHandle = setInterval(tick, 250);
+    keepAwake(true);
+  } else {
+    if(tickHandle){ clearInterval(tickHandle); tickHandle = null; }
+    keepAwake(false);
+  }
+}
+function tick(){
+  const now = Date.now();
+  for(const key of Object.keys(activeTimers)){
+    const t = activeTimers[key];
+    const left = Math.ceil((t.endAt - now)/1000);
+    const btn = document.getElementById('timer_'+key);
+    if(left <= 0){ finishTimer(key); continue; }
+    if(btn){ btn.classList.add('running'); btn.textContent = fmtTime(left); }
+  }
+  medTick(now);
+  if(!anyTimerRunning()) afterTimersChange();
+}
+function finishTimer(key){
+  delete activeTimers[key];
+  const btn = document.getElementById('timer_'+key);
+  if(btn){ btn.classList.remove('running'); btn.textContent = '✓'; }
+  chime();
+  state.checks[key] = true;
+  logAdd('poses', poseNameFromKey(key));
+  saveState();
+  setTimeout(()=>{ renderRoutine(); updateStreakUI(); renderCalendar(); }, 500);
+  afterTimersChange();
+}
+function stopAllTimers(){
+  for(const k of Object.keys(activeTimers)) delete activeTimers[k];
+  afterTimersChange();
+}
+// Coming back to the page (screen unlocked, tab reopened): catch up at once.
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'visible'){ unlockAudio(); if(anyTimerRunning()){ tick(); keepAwake(true); } }
+});
+
+/* Keep the screen on while a timer runs, so the phone doesn't lock mid-pose. */
+let wakeLock = null;
+async function keepAwake(on){
+  try{
+    if(on && !wakeLock && 'wakeLock' in navigator && document.visibilityState === 'visible'){
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', ()=>{ wakeLock = null; });
+    } else if(!on && wakeLock){ await wakeLock.release(); wakeLock = null; }
+  }catch(e){ wakeLock = null; }
+}
+
+/* Audio: browsers only allow sound after a tap, and phones can pause it.
+   Wake the audio on every tap so the chime is ready when a timer ends. */
+function unlockAudio(){
+  try{
+    if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    if(audioCtx.state !== 'running') audioCtx.resume();
+  }catch(e){}
+}
+document.addEventListener('pointerdown', unlockAudio, {passive:true});
+document.addEventListener('keydown', unlockAudio);
+
 let audioCtx;
-function chime(){
+function chime(times){
+  times = times || 1;
   try{
     audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
-    if(audioCtx.state === 'suspended') audioCtx.resume();
+    if(audioCtx.state !== 'running'){ audioCtx.resume().then(()=>chime(times)).catch(()=>{}); return; }
     const playNote = (freq, startAt, dur) => {
       const o = audioCtx.createOscillator();
       const g = audioCtx.createGain();
@@ -1288,9 +1398,12 @@ function chime(){
       g.gain.exponentialRampToValueAtTime(0.0001, startAt+dur);
       o.start(startAt); o.stop(startAt+dur);
     };
-    const now = audioCtx.currentTime;
-    playNote(660, now, 0.35);
-    playNote(880, now+0.16, 0.5);
+    const now = audioCtx.currentTime + 0.05;
+    for(let k=0;k<times;k++){
+      playNote(660, now + k*1.1, 0.35);
+      playNote(880, now + k*1.1 + 0.16, 0.5);
+    }
+    if(navigator.vibrate) navigator.vibrate(times > 1 ? [200,150,200,150,200] : 200);
   }catch(e){}
 }
 
@@ -1350,18 +1463,34 @@ function updateStreakUI(){
   const todayKey = new Date().toDateString();
   const completedToday = dayComplete(state.currentDay);
   if(completedToday && state.lastCompleteDate !== todayKey && !initializing){
-    state.streak += 1;
     state.lastCompleteDate = todayKey;
     saveState();
     if(!checkWeekComplete()) celebrateDay();
   }
+  // Streak = days in a row with practice in the Activity Calendar
+  // (any yoga pose ticked off, or a meditation), ending today or yesterday.
+  state.streak = computeStreak();
+  saveState();
+  const practicedNow = dayPracticed(dateKeyOf(new Date()));
   renderTodayBanner();
   document.getElementById('streakVal').textContent = state.streak;
   renderDayStrip();
-  const pct = Math.min(1, (state.streak % 7)/7 || (completedToday?1:0));
   const circumference = 100.5;
-  document.getElementById('streakArc').style.strokeDashoffset = circumference - (completedToday ? circumference : circumference*0.06);
-  document.getElementById('streakSub').textContent = completedToday ? "today's rounds complete — nicely done" : "complete today's rounds to extend it";
+  document.getElementById('streakArc').style.strokeDashoffset = circumference - (practicedNow ? circumference : circumference*0.06);
+  document.getElementById('streakSub').textContent = practicedNow
+    ? (completedToday ? "today's rounds complete — nicely done" : "you practiced today — nicely done")
+    : (state.streak > 0 ? "practice today to keep it going" : "practice today to start your streak");
+}
+function dayPracticed(key){
+  const e = state.log[key];
+  return !!e && ((e.poses && e.poses.length > 0) || e.meditation > 0);
+}
+function computeStreak(){
+  const d = new Date();
+  if(!dayPracticed(dateKeyOf(d))) d.setDate(d.getDate() - 1);
+  let n = 0;
+  while(dayPracticed(dateKeyOf(d)) && n < 3660){ n++; d.setDate(d.getDate() - 1); }
+  return n;
 }
 
 /* ---------------- Main routine render ---------------- */
@@ -1571,6 +1700,7 @@ function renderCalendar(){
     const entry = state.log[key];
     const hasYoga = entry && entry.poses.length > 0;
     const hasStrength = PHASE2.strength && entry && entry.strength.length > 0;
+    const hasMed = entry && entry.meditation > 0;
     const isToday = key === todayStr;
     const isSelected = key === selectedCalDate;
     cells += `<div class="cal-day ${isToday?'today':''} ${isSelected?'selected':''}" onclick="selectCalDate('${key}')">
@@ -1578,6 +1708,7 @@ function renderCalendar(){
       <div class="cal-dots">
         ${hasYoga?'<span class="cal-dot yoga"></span>':''}
         ${hasStrength?'<span class="cal-dot strength"></span>':''}
+        ${hasMed?'<span class="cal-dot med"></span>':''}
       </div>
     </div>`;
   }
@@ -1586,13 +1717,19 @@ function renderCalendar(){
   const dObj = new Date(selectedCalDate + 'T00:00:00');
   const dLabel = dObj.toLocaleDateString(undefined, {weekday:'long', month:'long', day:'numeric'});
   let detailHtml = `<div class="cal-detail-date">${dLabel}</div>`;
-  if(!entry || (entry.poses.length===0 && (!PHASE2.strength || entry.strength.length===0))){
+  if(!entry || (entry.poses.length===0 && !(entry.meditation>0) && (!PHASE2.strength || entry.strength.length===0))){
     detailHtml += `<div class="cal-detail-empty">Nothing logged this day.</div>`;
   } else {
     if(entry.poses.length){
       detailHtml += `<div class="cal-detail-group">
         <div class="cal-detail-label">Yoga</div>
         <div class="cal-detail-items">${entry.poses.join(' · ')}</div>
+      </div>`;
+    }
+    if(entry.meditation > 0){
+      detailHtml += `<div class="cal-detail-group">
+        <div class="cal-detail-label">Meditation</div>
+        <div class="cal-detail-items">${entry.meditation} minutes</div>
       </div>`;
     }
     if(PHASE2.strength && entry.strength.length){
@@ -1615,7 +1752,7 @@ function renderCalendar(){
           <button class="cal-nav-btn" onclick="shiftMonth(1)">›</button>
         </div>
       </div>
-      <p class="calendar-sub">${PHASE2.strength ? 'Sage = yoga done · gold = strength picked.' : 'A sage dot marks a day you practiced.'} Tap a day for details.</p>
+      <p class="calendar-sub">${PHASE2.strength ? 'Sage = yoga done · gold = strength picked.' : 'Sage = yoga practiced · lavender = meditation.'} Tap a day for details.</p>
       <div class="cal-grid">
         ${DOW.map(d=>`<div class="cal-dow">${d}</div>`).join('')}
         ${cells}
@@ -1656,6 +1793,96 @@ function applyGenderUI(){
     const el = document.getElementById('gd_'+g);
     if(el) el.classList.toggle('active', g === state.gender);
   });
+}
+
+/* ---------------- Pose how-to ---------------- */
+let openInfo = null;
+function toggleInfo(id){
+  openInfo = (openInfo === id) ? null : id;
+  renderRoutine();
+}
+const POSE_HOWTO = {
+  catcow: {how:"Start on hands and knees, wrists under shoulders and knees under hips. Breathe in as you drop your belly and lift your chest and tailbone (Cow). Breathe out as you round your back toward the ceiling and tuck your chin (Cat). Keep moving slowly with your breath.", tip:"Pad your knees with a folded blanket if they feel sore."},
+  downdog: {how:"From hands and knees, tuck your toes and lift your hips up and back so your body makes an upside-down V. Press the floor away with your hands, let your head hang between your arms, and reach your heels toward the mat.", tip:"Bend your knees as much as you need to keep your back long."},
+  forwardfold: {how:"Stand with feet hip-width apart. Breathe out and hinge forward from your hips, letting your head and arms hang toward the floor. Let your neck relax.", tip:"Keep a soft bend in your knees, and rest your hands on your shins or blocks if the floor is far away."},
+  highplank: {how:"Place your hands under your shoulders and step your feet back so your body forms one straight line from head to heels. Press the floor away, draw your belly in and keep your hips level.", tip:"Drop your knees to the mat for an easier version."},
+  sideplank: {how:"From high plank, shift onto one hand and roll onto the outer edge of that foot, stacking the other foot on top. Lift your hips and reach your free arm up toward the ceiling. Switch sides when the timer moves to Left.", tip:"Lower your bottom knee to the mat for more support."},
+  boat: {how:"Sit with knees bent and feet on the floor. Lean back slightly with a tall chest and lift your feet so your shins are parallel to the floor. Reach your arms forward alongside your knees.", tip:"Hold the backs of your thighs, or keep your toes on the floor, to make it easier."},
+  chair: {how:"Stand with feet together or hip-width apart. Bend your knees and sit your hips back as if into a chair, and raise your arms overhead. Keep your weight in your heels and your chest lifted.", tip:"Check that you can still see your toes past your knees."},
+  warrior3: {how:"Stand on one leg. Hinge forward from your hips while lifting the other leg straight behind you, until your body and lifted leg form a T. Keep your hips level and reach your arms forward or rest your hands at your heart. Switch legs for the Left side.", tip:"Hold a chair or wall for balance, or keep your fingertips on blocks."},
+  kneeElbow: {how:"Stand tall with your hands behind your head. Lift one knee and twist to bring the opposite elbow toward it, then lower and switch sides. Keep a steady, controlled pace.", tip:"Move slowly and keep your standing knee soft."},
+  forearmplank: {how:"Rest on your forearms with elbows under your shoulders and step your feet back. Hold your body in one straight line, drawing your belly in and squeezing your legs.", tip:"Lower your knees to the mat if your lower back starts to sag."},
+  deadbug: {how:"Lie on your back with arms reaching up and knees bent over your hips. Press your lower back into the mat. Slowly lower one arm overhead and the opposite leg toward the floor, return to center, and switch sides.", tip:"Only lower as far as you can while keeping your back flat on the mat."},
+  bridge: {how:"Lie on your back with knees bent and feet flat, hip-width apart, close to your hips. Press through your feet to lift your hips, keeping your knees in line with your feet. Rest your arms at your sides.", tip:"Squeeze a block or pillow between your knees to keep them aligned."},
+  sideangle: {how:"Step your feet wide, turn your front foot out and bend that knee over your ankle. Rest your forearm on your front thigh and reach your other arm up and over your ear in one long line. Switch sides for the Left side.", tip:"Keep your chest open toward the side wall instead of the floor."},
+  twistchair: {how:"Sit into Chair Pose with your hands at your heart. Twist your chest toward one side, hooking your elbow outside the opposite knee. Keep your knees even and your hips level, then switch sides halfway through.", tip:"Lengthen your spine as you breathe in, and twist a little deeper as you breathe out."},
+  russiantwist: {how:"Sit with knees bent and lean back slightly with a tall chest. Clasp your hands and turn your chest from side to side, moving your hands toward the floor beside each hip.", tip:"Keep your feet on the floor for an easier version."},
+  chaturanga: {how:"From high plank, shift slightly forward and bend your elbows straight back, close to your ribs, lowering until your upper arms are parallel to the floor. Press back up to plank. Each lower-and-lift is one rep.", tip:"Lower your knees to the mat first to build strength safely."},
+  updog: {how:"Lie on your belly with hands beside your lower ribs and the tops of your feet on the mat. Press into your hands to straighten your arms, lifting your chest and thighs off the floor. Roll your shoulders back and look forward.", tip:"For a gentler version, keep your thighs down and lift only your chest (Cobra)."},
+  shouldertaps: {how:"Start in high plank with feet a little wider than your hips. Lift one hand to tap the opposite shoulder, place it back down, and switch. Keep your hips as still as you can.", tip:"Widen your feet or lower your knees to steady your hips."},
+  locust: {how:"Lie on your belly with arms by your sides, palms down. Breathe in and lift your chest, arms and legs off the mat, reaching back through your fingers and toes. Keep your neck long and look slightly ahead.", tip:"Lift just your chest, or just your legs, to make it easier."},
+  birddog: {how:"Start on hands and knees. Reach one arm forward and the opposite leg back until both are level with your body. Hold for a breath, return, and switch sides.", tip:"Keep your hips square to the floor, as if balancing a cup of tea on your lower back."},
+  bridgemarch: {how:"Lift into Bridge Pose. Keeping your hips high and level, slowly lift one foot a few inches off the floor, put it down, then lift the other, like a slow march.", tip:"If your hips drop, take smaller lifts."},
+  crescentlunge: {how:"Step one foot forward and bend that knee over your ankle, with your back heel lifted and the back leg long. Raise your arms overhead and stand tall through your chest. Switch legs for the Left side.", tip:"Lower your back knee to the mat for a gentler lunge."},
+  sidebend: {how:"Stand tall with feet hip-width apart. Reach one arm overhead and gently lean toward the opposite side, lengthening the side of your body. Return to center and switch sides.", tip:"Keep both feet grounded and lean sideways, not forward."},
+  childspose: {how:"Kneel with big toes together and knees apart. Sit your hips back toward your heels and fold forward, resting your forehead on the mat and your arms forward or by your sides. Breathe slowly.", tip:"Rest your forehead on a pillow or block if it doesn't reach the floor."},
+  supinetwist: {how:"Lie on your back and hug one knee into your chest. Guide it across your body toward the floor and stretch the other arm out to the side. Look toward the outstretched hand if your neck is comfortable. Switch sides for the Left side.", tip:"Put a pillow under the bent knee if it doesn't reach the floor."},
+  seatedfold: {how:"Sit with legs straight in front of you. Breathe in to sit tall, then breathe out and fold forward from your hips, reaching toward your shins, ankles or feet.", tip:"Bend your knees, or sit on a folded blanket, to keep your back long."}
+};
+
+/* ---------------- Meditation ---------------- */
+const MED_CHOICES = [5,10,15,20,25,30];
+const med = {mins:10, running:false, endAt:0, left:600};
+function renderMedPills(){
+  document.getElementById('medPills').innerHTML = MED_CHOICES.map(m=>
+    `<button class="med-pill ${m===med.mins?'active':''}" ${med.running||med.left<med.mins*60?'disabled':''} onclick="medSetMins(${m})" aria-pressed="${m===med.mins}">${m} min</button>`).join('');
+}
+function medShow(){
+  document.getElementById('medClock').textContent = fmtTime(Math.max(0, med.left));
+  document.getElementById('medStart').textContent = med.running ? 'Pause' : (med.left < med.mins*60 ? 'Resume' : 'Start');
+  renderMedPills();
+}
+function medSetMins(m){
+  if(med.running) return;
+  med.mins = m; med.left = m*60;
+  state.medMins = m; saveState();
+  document.getElementById('medDone').textContent = '';
+  medShow();
+}
+function medStartPause(){
+  unlockAudio();
+  if(med.running){
+    med.left = Math.max(0, Math.ceil((med.endAt - Date.now())/1000));
+    med.running = false;
+  } else {
+    if(med.left <= 0) med.left = med.mins*60;
+    med.endAt = Date.now() + med.left*1000;
+    med.running = true;
+    document.getElementById('medDone').textContent = '';
+  }
+  medShow();
+  afterTimersChange();
+}
+function medReset(){
+  med.running = false; med.left = med.mins*60;
+  document.getElementById('medDone').textContent = '';
+  medShow(); afterTimersChange();
+}
+function medTick(now){
+  if(!med.running) return;
+  med.left = Math.ceil((med.endAt - now)/1000);
+  if(med.left <= 0){
+    med.running = false; med.left = 0;
+    chime(3);
+    const day = ensureLogDay(todayKey());
+    day.meditation = (day.meditation || 0) + med.mins;
+    saveState();
+    document.getElementById('medDone').textContent = `Your ${med.mins}-minute meditation is complete. Well done. 🌿`;
+    med.left = med.mins*60;
+    medShow(); renderCalendar(); updateStreakUI(); afterTimersChange();
+    return;
+  }
+  document.getElementById('medClock').textContent = fmtTime(med.left);
 }
 
 /* ---------------- Toast + confetti ---------------- */
@@ -1713,6 +1940,7 @@ function checkWeekComplete(){
 function closeWeekDialog(){ document.getElementById('weekOverlay').hidden = true; }
 function beginNextWeek(){
   // Clear this week's check-offs so Days 1–7 are ready again. Streak and calendar stay.
+  stopAllTimers();
   state.checks = {};
   state.reps = {};
   state.currentDay = 1;
@@ -1804,7 +2032,8 @@ function openResetDialog(){
 }
 function closeResetDialog(){ document.getElementById('resetOverlay').hidden = true; }
 function startFresh(){
-  const keep = {fontScale:state.fontScale, gender:state.gender, reminderTime:state.reminderTime, strengthMode:state.strengthMode};
+  stopAllTimers(); med.running = false; med.left = med.mins*60; medShow();
+  const keep = {fontScale:state.fontScale, gender:state.gender, reminderTime:state.reminderTime, strengthMode:state.strengthMode, medMins:state.medMins};
   try{ localStorage.removeItem(STORE_KEY); }catch(e){}
   state = loadState();
   Object.assign(state, keep);
@@ -1837,6 +2066,8 @@ document.addEventListener('keydown', e=>{
 
 /* ---------------- Init ---------------- */
 document.getElementById('remTime').value = state.reminderTime || '19:00';
+if(MED_CHOICES.includes(state.medMins)){ med.mins = state.medMins; med.left = med.mins*60; }
+medShow();
 // Coming back on a new day with the selected day already finished? Open the next unfinished day.
 if(dayComplete(state.currentDay) && state.lastCompleteDate !== new Date().toDateString()){
   state.currentDay = nextOpenDay();
