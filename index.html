@@ -499,7 +499,7 @@
   .cal-day.empty{visibility:hidden;cursor:default;}
   .cal-day:hover{border-color:var(--brass);}
   .cal-day.today{border-color:var(--brass-bright);color:var(--parchment);font-weight:600;}
-  .cal-day.selected{background:var(--surface-raised);border-color:var(--sage);}
+  .cal-day.selected{box-shadow:0 0 0 2px var(--parchment) inset;}
   .cal-dots{display:flex;gap:2px;margin-top:3px;}
   .cal-dot{width:5px;height:5px;border-radius:50%;}
   .cal-dot.yoga{background:var(--sage);}
@@ -580,6 +580,19 @@
   .med-actions{display:flex;gap:8px;flex-wrap:wrap;}
   .med-done{margin-top:10px;font-size:calc(12.5px * var(--fs-mult, 1));color:var(--sage);min-height:1em;}
   .cal-dot.med{background:#A8A2C8;}
+  /* Calendar fills: sage = yoga, lavender = meditation, split = both */
+  :root{ --yoga-fill:rgba(140,155,122,.62); --med-fill:rgba(168,162,200,.58); }
+  .cal-day.did-yoga{background:var(--yoga-fill);color:var(--parchment);}
+  .cal-day.did-med{background:var(--med-fill);color:var(--parchment);}
+  .cal-day.did-both{background:linear-gradient(135deg, var(--yoga-fill) 0 50%, var(--med-fill) 50% 100%);color:var(--parchment);}
+  .cal-key{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:2px 0 14px;
+    font-size:calc(12px * var(--fs-mult, 1));color:var(--parchment-dim);}
+  .cal-key span{display:inline-flex;align-items:center;gap:6px;}
+  .cal-key i{width:14px;height:14px;border-radius:4px;display:inline-block;border:1px solid var(--hairline);}
+  .cal-key i.k-yoga{background:var(--yoga-fill);}
+  .cal-key i.k-med{background:var(--med-fill);}
+  .cal-key i.k-both{background:linear-gradient(135deg, var(--yoga-fill) 0 50%, var(--med-fill) 50% 100%);}
+  .cal-med-line{font-size:calc(12.5px * var(--fs-mult, 1));color:var(--parchment);}
 
   /* ---------------- Today's practice banner ---------------- */
   .today-banner{
@@ -1703,12 +1716,12 @@ function renderCalendar(){
     const hasMed = entry && entry.meditation > 0;
     const isToday = key === todayStr;
     const isSelected = key === selectedCalDate;
-    cells += `<div class="cal-day ${isToday?'today':''} ${isSelected?'selected':''}" onclick="selectCalDate('${key}')">
+    const fill = hasYoga && hasMed ? 'did-both' : hasYoga ? 'did-yoga' : hasMed ? 'did-med' : '';
+    const what = [hasYoga?'yoga':'', hasMed?'meditation':''].filter(Boolean).join(' and ');
+    cells += `<div class="cal-day ${fill} ${isToday?'today':''} ${isSelected?'selected':''}" onclick="selectCalDate('${key}')" role="button" aria-label="${d}${what?', '+what:''}">
       ${d}
       <div class="cal-dots">
-        ${hasYoga?'<span class="cal-dot yoga"></span>':''}
         ${hasStrength?'<span class="cal-dot strength"></span>':''}
-        ${hasMed?'<span class="cal-dot med"></span>':''}
       </div>
     </div>`;
   }
@@ -1727,9 +1740,10 @@ function renderCalendar(){
       </div>`;
     }
     if(entry.meditation > 0){
+      const sessions = entry.medSessions > 1 ? ` (${entry.medSessions} sessions)` : '';
       detailHtml += `<div class="cal-detail-group">
         <div class="cal-detail-label">Meditation</div>
-        <div class="cal-detail-items">${entry.meditation} minutes</div>
+        <div class="cal-med-line">Meditation for ${entry.meditation} minutes${sessions}</div>
       </div>`;
     }
     if(PHASE2.strength && entry.strength.length){
@@ -1752,7 +1766,12 @@ function renderCalendar(){
           <button class="cal-nav-btn" onclick="shiftMonth(1)">›</button>
         </div>
       </div>
-      <p class="calendar-sub">${PHASE2.strength ? 'Sage = yoga done · gold = strength picked.' : 'Sage = yoga practiced · lavender = meditation.'} Tap a day for details.</p>
+      <div class="cal-key" aria-hidden="true">
+        <span><i class="k-yoga"></i>Yoga</span>
+        <span><i class="k-med"></i>Meditation</span>
+        <span><i class="k-both"></i>Both</span>
+      </div>
+      <p class="calendar-sub">Tap a day to see what you did.</p>
       <div class="cal-grid">
         ${DOW.map(d=>`<div class="cal-dow">${d}</div>`).join('')}
         ${cells}
@@ -1876,6 +1895,7 @@ function medTick(now){
     chime(3);
     const day = ensureLogDay(todayKey());
     day.meditation = (day.meditation || 0) + med.mins;
+    day.medSessions = (day.medSessions || 0) + 1;
     saveState();
     document.getElementById('medDone').textContent = `Your ${med.mins}-minute meditation is complete. Well done. 🌿`;
     med.left = med.mins*60;
